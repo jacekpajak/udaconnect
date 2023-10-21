@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package persons;
+
+import "google/protobuf/timestamp.proto"; // Import for Timestamp type
+import "google/protobuf/empty.proto";      // Import for Empty type
+
+message Person {
+    string id = 1;
+    string name = 2;
+    string email = 3;
+    google.protobuf.Timestamp birthdate = 4;
+    // Add other fields as needed to match your Person schema
+}
+
+message Connection {
+    string id = 1;
+    string person_id = 2;
+    google.protobuf.Timestamp date = 3;
+    // Add other fields as needed to match your Connection schema
+}
+
+service PersonsService {
+    rpc CreatePerson (Person) returns (Person);
+    rpc RetrieveAllPersons (google.protobuf.Empty) returns (stream Person);
+    rpc RetrievePerson (PersonId) returns (Person);
+    rpc FindConnections (ConnectionRequest) returns (stream Connection);
+}
+
+message PersonId {
+    string id = 1;
+}
+
+message ConnectionRequest {
+    string person_id = 1;
+    google.protobuf.Timestamp start_date = 2;
+    google.protobuf.Timestamp end_date = 3;
+    int32 distance = 4;
+}

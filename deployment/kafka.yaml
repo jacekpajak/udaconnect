@@ -35,7 +35,7 @@ spec:
     spec:
       containers:
         - name: zookeeper
-          image: zookeeper:3.7.0  # Use an appropriate ZooKeeper image version
+          image: zookeeper:3.7.0
           ports:
             - containerPort: 2181
             - containerPort: 2888
@@ -88,7 +88,7 @@ metadata:
   name: kafka-ingress
 spec:
   rules:
-    - host: kafka.local  # Change to your desired hostname
+    - host: kafka.local
       http:
         paths:
           - path: /

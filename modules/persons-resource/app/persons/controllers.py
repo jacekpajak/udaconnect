@@ -1,63 +1,106 @@
+import grpc
+from concurrent import futures
+from google.protobuf.timestamp_pb2 import Timestamp
+import persons_pb2
+import persons_pb2_grpc
 from datetime import datetime
-
-from app.persons.models import Connection, Location, Person
-from app.persons.schemas import (
-    ConnectionSchema,
-    LocationSchema,
-    PersonSchema,
-)
+from app.persons.models import Person, Connection
 from app.persons.services import ConnectionService, LocationService, PersonService
-from flask import request
-from flask_accepts import accepts, responds
-from flask_restx import Namespace, Resource
-from typing import Optional, List
 
-DATE_FORMAT = "%Y-%m-%d"
+class PersonsService(persons_pb2_grpc.PersonsServiceServicer):
+    def CreatePerson(self, request, context):
+        # Implement the logic to create a person
+        try:
+            new_person_data = {
+                "name": request.name,
+                "email": request.email,
+                "birthdate": datetime.utcfromtimestamp(request.birthdate.seconds),
+            }
+            new_person = PersonService.create(new_person_data)
+            return persons_pb2.Person(
+                id=new_person.id,
+                name=new_person.name,
+                email=new_person.email,
+                birthdate=Timestamp(
+                    seconds=int(new_person.birthdate.timestamp())
+                ),
+            )
+        except Exception as e:
+            context.set_details(str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return persons_pb2.Person()
 
-api = Namespace("persons", description="Connections via geolocation.")  # noqa
+    def RetrieveAllPersons(self, request, context):
+        # Implement the logic to retrieve all persons
+        try:
+            persons = PersonService.retrieve_all()
+            for person in persons:
+                yield persons_pb2.Person(
+                    id=person.id,
+                    name=person.name,
+                    email=person.email,
+                    birthdate=Timestamp(
+                        seconds=int(person.birthdate.timestamp())
+                    ),
+                )
+        except Exception as e:
+            context.set_details(str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
 
+    def RetrievePerson(self, request, context):
+        # Implement the logic to retrieve a person by ID
+        try:
+            person = PersonService.retrieve(request.id)
+            if person:
+                return persons_pb2.Person(
+                    id=person.id,
+                    name=person.name,
+                    email=person.email,
+                    birthdate=Timestamp(
+                        seconds=int(person.birthdate.timestamp())
+                    ),
+                )
+            else:
+                context.set_code(grpc.StatusCode.NOT_FOUND)
+                return persons_pb2.Person()
+        except Exception as e:
+            context.set_details(str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
+            return persons_pb2.Person()
 
-@api.route("/persons")
-class PersonsResource(Resource):
-    @accepts(schema=PersonSchema)
-    @responds(schema=PersonSchema)
-    def post(self) -> Person:
-        payload = request.get_json()
-        new_person: Person = PersonService.create(payload)
-        return new_person
+    def FindConnections(self, request, context):
+        # Implement the logic to find connections based on the provided criteria
+        try:
+            start_date = datetime.utcfromtimestamp(request.start_date.seconds)
+            end_date = datetime.utcfromtimestamp(request.end_date.seconds)
+            distance = request.distance
 
-    @responds(schema=PersonSchema, many=True)
-    def get(self) -> List[Person]:
-        persons: List[Person] = PersonService.retrieve_all()
-        return persons
+            connections = ConnectionService.find_contacts(
+                person_id=request.person_id,
+                start_date=start_date,
+                end_date=end_date,
+                meters=distance,
+            )
 
+            for connection in connections:
+                yield persons_pb2.Connection(
+                    id=connection.id,
+                    person_id=connection.person_id,
+                    date=Timestamp(
+                        seconds=int(connection.date.timestamp())
+                    ),
+                    # Add other fields as needed to match your Connection schema
+                )
+        except Exception as e:
+            context.set_details(str(e))
+            context.set_code(grpc.StatusCode.INTERNAL)
 
-@api.route("/persons/<person_id>")
-@api.param("person_id", "Unique ID for a given Person", _in="query")
-class PersonResource(Resource):
-    @responds(schema=PersonSchema)
-    def get(self, person_id) -> Person:
-        person: Person = PersonService.retrieve(person_id)
-        return person
+def serve():
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    persons_pb2_grpc.add_PersonsServiceServicer_to_server(PersonsService(), server)
+    server.add_insecure_port('[::]:50051')  # Change the port as needed
+    server.start()
+    server.wait_for_termination()
 
-
-@api.route("/persons/<person_id>/connection")
-@api.param("start_date", "Lower bound of date range", _in="query")
-@api.param("end_date", "Upper bound of date range", _in="query")
-@api.param("distance", "Proximity to a given user in meters", _in="query")
-class ConnectionDataResource(Resource):
-    @responds(schema=ConnectionSchema, many=True)
-    def get(self, person_id) -> ConnectionSchema:
-        start_date: datetime = datetime.strptime(
-            request.args["start_date"], DATE_FORMAT
-        )
-        end_date: datetime = datetime.strptime(request.args["end_date"], DATE_FORMAT)
-        distance: Optional[int] = request.args.get("distance", 5)
-
-        results = ConnectionService.find_contacts(
-            person_id=person_id,
-            start_date=start_date,
-            end_date=end_date,
-            meters=distance,
-        )
-        return results
+if __name__ == '__main__':
+    serve()
